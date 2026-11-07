@@ -1,0 +1,241 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  EXECUTIVE
+  MANAGER
+}
+
+enum ShipmentStatus {
+  DRAFT
+  PROCESSING
+  NEEDS_REVIEW
+  READY_FOR_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum DocumentType {
+  INVOICE
+  PACKING_LIST
+  BILL_OF_LADING
+}
+
+enum DocumentProcessingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum FieldVerificationStatus {
+  UNVERIFIED
+  VERIFIED
+  CORRECTED
+  MISSING
+}
+
+enum ValidationRuleId {
+  INVOICE_ARITHMETIC
+  QUANTITY_MATCH
+  GROSS_WEIGHT_MATCH
+  NET_WEIGHT_MATCH
+  PACKAGE_MATCH
+  CONTAINER_MATCH
+  PARTY_CONSISTENCY
+  CURRENCY_DATE_CONSISTENCY
+}
+
+enum ValidationSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum ValidationStatus {
+  OPEN
+  RESOLVED
+  ACCEPTED_EXCEPTION
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime @default(now())
+
+  assignedShipments Shipment[]        @relation("AssignedExecutive")
+  approvedShipments Shipment[]        @relation("ApprovedBy")
+  uploadedDocuments Document[]
+  auditLogs         AuditLog[]
+  approvals         Approval[]
+  resolvedIssues    ValidationIssue[]
+}
+
+model Shipment {
+  id                  String         @id @default(cuid())
+  shipmentNumber      String         @unique
+  supplier            String
+  importer            String
+  status              ShipmentStatus @default(DRAFT)
+  assignedExecutiveId String?
+  assignedExecutive   User?          @relation("AssignedExecutive", fields: [assignedExecutiveId], references: [id])
+  approvedById        String?
+  approvedBy          User?          @relation("ApprovedBy", fields: [approvedById], references: [id])
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  documents        Document[]
+  extractedFields  ExtractedField[]
+  lineItems        LineItem[]
+  validationIssues ValidationIssue[]
+  approvals        Approval[]
+  auditLogs        AuditLog[]
+
+  @@index([status])
+  @@index([supplier])
+}
+
+model Document {
+  id               String                   @id @default(cuid())
+  shipmentId       String
+  shipment         Shipment                 @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  documentType     DocumentType
+  originalFilename String
+  storageKey       String
+  contentHash      String
+  mimeType         String
+  fileSize         Int
+  pageCount        Int?
+  processingStatus DocumentProcessingStatus @default(PENDING)
+  uploadedById     String
+  uploadedBy       User                     @relation(fields: [uploadedById], references: [id])
+  createdAt        DateTime                 @default(now())
+
+  extraction              Extraction?
+  extractedFieldsAsSource ExtractedField[]   @relation("SourceDocument")
+
+  @@unique([shipmentId, documentType])
+  @@index([shipmentId])
+}
+
+model Extraction {
+  id                 String                   @id @default(cuid())
+  documentId         String                   @unique
+  document           Document                 @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  provider           String
+  model              String
+  promptVersion      String
+  rawResponse        Json
+  structuredResponse Json
+  processingStatus   DocumentProcessingStatus @default(PENDING)
+  errorMessage        String?
+  createdAt          DateTime                 @default(now())
+}
+
+model ExtractedField {
+  id                 String                   @id @default(cuid())
+  shipmentId         String
+  shipment           Shipment                 @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  fieldName          String
+  value              String?
+  originalValue      String?
+  confidence         Float?
+  sourceDocumentId   String?
+  sourceDocument     Document?                @relation("SourceDocument", fields: [sourceDocumentId], references: [id])
+  evidence           String?
+  pageNumber         Int?
+  verificationStatus FieldVerificationStatus  @default(UNVERIFIED)
+  correctionNote     String?
+  updatedAt          DateTime                 @updatedAt
+  createdAt          DateTime                 @default(now())
+
+  @@unique([shipmentId, fieldName])
+  @@index([shipmentId])
+}
+
+model LineItem {
+  id                 String        @id @default(cuid())
+  shipmentId         String
+  shipment           Shipment      @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  lineIndex          Int
+  description        String?
+  hsnCode            String?
+  quantity           Float?
+  unit               String?
+  unitPrice          Float?
+  lineTotal          Float?
+  countryOfOrigin    String?
+  sourceDocumentType DocumentType?
+  confidenceAvg      Float?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@unique([shipmentId, lineIndex])
+  @@index([shipmentId])
+}
+
+model ValidationIssue {
+  id                String             @id @default(cuid())
+  shipmentId        String
+  shipment          Shipment           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  ruleId            ValidationRuleId
+  category          String
+  severity          ValidationSeverity
+  documentsCompared Json
+  comparedValues    Json
+  difference        String?
+  message           String
+  status            ValidationStatus   @default(OPEN)
+  resolvedById      String?
+  resolvedBy        User?              @relation(fields: [resolvedById], references: [id])
+  resolutionNote    String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([shipmentId])
+  @@index([status])
+}
+
+model AuditLog {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  shipmentId    String?
+  shipment      Shipment? @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  action        String
+  entityType    String
+  entityId      String
+  previousValue Json?
+  newValue      Json?
+  createdAt     DateTime  @default(now())
+
+  @@index([shipmentId])
+  @@index([userId])
+}
+
+model Approval {
+  id         String           @id @default(cuid())
+  shipmentId String
+  shipment   Shipment         @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  managerId  String
+  manager    User             @relation(fields: [managerId], references: [id])
+  decision   ApprovalDecision
+  comments   String?
+  createdAt  DateTime         @default(now())
+
+  @@index([shipmentId])
+}
