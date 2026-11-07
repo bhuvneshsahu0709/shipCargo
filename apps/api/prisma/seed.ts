@@ -98,6 +98,10 @@ async function main() {
     where: { shipmentId: shp2.id, verificationStatus: "UNVERIFIED" },
     data: { verificationStatus: "VERIFIED" },
   });
+  await prisma.lineItem.updateMany({
+    where: { shipmentId: shp2.id, verificationStatus: "UNVERIFIED" },
+    data: { verificationStatus: "VERIFIED" },
+  });
   await recomputeShipmentReadiness(shp2.id);
   await decideApproval({ shipmentId: shp2.id, managerId: manager.id, request: { decision: "APPROVED", comments: "Looks good, all fields verified and weights reconcile." } });
 

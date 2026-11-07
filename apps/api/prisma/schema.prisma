@@ -181,6 +181,8 @@ model LineItem {
   countryOfOrigin    String?
   sourceDocumentType DocumentType?
   confidenceAvg      Float?
+  verificationStatus FieldVerificationStatus @default(UNVERIFIED)
+  correctionNote     String?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 

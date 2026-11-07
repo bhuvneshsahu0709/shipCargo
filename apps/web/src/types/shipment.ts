@@ -59,6 +59,8 @@ export type LineItemDto = {
   countryOfOrigin: string | null;
   sourceDocumentType: DocumentType | null;
   confidenceAvg: number | null;
+  verificationStatus: FieldVerificationStatus;
+  correctionNote: string | null;
 };
 
 export type ValidationIssueDto = {

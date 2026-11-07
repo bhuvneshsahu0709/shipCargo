@@ -241,7 +241,7 @@ export default function ShipmentDetailPage({ params }: { params: Promise<{ id: s
                 <FieldSection title="Invoice Details" fields={INVOICE_FIELDS} byName={byName} shipmentId={id} readOnly={readOnly} onNavigate={handleNavigate} />
                 <div>
                   <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Line Items</h3>
-                  <LineItemsTable lineItems={lineItems} />
+                  <LineItemsTable shipmentId={id} lineItems={lineItems} readOnly={readOnly} />
                 </div>
                 <FieldSection title="Packaging & Weights" fields={PACKAGING_FIELDS} byName={byName} shipmentId={id} readOnly={readOnly} onNavigate={handleNavigate} />
                 <FieldSection title="Containers" fields={CONTAINER_FIELDS} byName={byName} shipmentId={id} readOnly={readOnly} onNavigate={handleNavigate} />

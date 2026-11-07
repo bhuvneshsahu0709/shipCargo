@@ -20,6 +20,13 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     return;
   }
 
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
+    res.status(409).json({
+      error: { code: "CONFLICT", message: "This action references a record that no longer exists. If this is your session, try logging out and back in." },
+    });
+    return;
+  }
+
   if (err instanceof HttpError) {
     res.status(err.status).json({
       error: { code: err.code, message: err.message, details: "details" in err ? (err as { details?: unknown }).details : undefined },

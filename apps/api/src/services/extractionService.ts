@@ -196,29 +196,56 @@ async function mergeExtractedFields(
 
 async function mergeLineItems(shipmentId: string, results: Partial<Record<DocumentType, DocumentExtractionResult>>) {
   const source = results.INVOICE ?? results.PACKING_LIST;
-  await prisma.lineItem.deleteMany({ where: { shipmentId } });
-  if (!source || source.lineItems.length === 0) return;
+  const sourceDocumentType: DocumentType | null = results.INVOICE ? "INVOICE" : results.PACKING_LIST ? "PACKING_LIST" : null;
 
-  await prisma.lineItem.createMany({
-    data: source.lineItems.map((item, index) => {
-      const confidences = [item.description, item.hsnCode, item.quantity, item.unit, item.unitPrice, item.lineTotal]
-        .map((f) => f.confidence)
-        .filter((c): c is number => typeof c === "number");
-      return {
-        shipmentId,
-        lineIndex: index,
-        description: item.description.value,
-        hsnCode: item.hsnCode.value,
-        quantity: item.quantity.value,
-        unit: item.unit.value,
-        unitPrice: item.unitPrice.value,
-        lineTotal: item.lineTotal.value,
-        countryOfOrigin: item.countryOfOrigin.value,
-        sourceDocumentType: results.INVOICE ? "INVOICE" : "PACKING_LIST",
-        confidenceAvg: confidences.length > 0 ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null,
-      };
-    }),
-  });
+  const existing = await prisma.lineItem.findMany({ where: { shipmentId } });
+  const existingByIndex = new Map(existing.map((li) => [li.lineIndex, li]));
+  const humanOwned = (idx: number) => {
+    const row = existingByIndex.get(idx);
+    return row ? row.verificationStatus === "CORRECTED" || row.verificationStatus === "VERIFIED" : false;
+  };
+
+  const incomingIndices = new Set(source?.lineItems.map((_, idx) => idx) ?? []);
+
+  // Never delete a line a human has already corrected or verified, even if a re-extraction
+  // returns fewer rows — the same principle as ExtractedField's merge in processShipmentExtraction.
+  const toDelete = existing.filter((li) => !incomingIndices.has(li.lineIndex) && !humanOwned(li.lineIndex));
+  if (toDelete.length > 0) {
+    await prisma.lineItem.deleteMany({ where: { id: { in: toDelete.map((li) => li.id) } } });
+  }
+
+  if (!source) return;
+
+  for (const [index, item] of source.lineItems.entries()) {
+    if (humanOwned(index)) continue;
+
+    const confidences = [item.description, item.hsnCode, item.quantity, item.unit, item.unitPrice, item.lineTotal]
+      .map((f) => f.confidence)
+      .filter((c): c is number => typeof c === "number");
+    const confidenceAvg = confidences.length > 0 ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null;
+    const allNull = [item.description.value, item.hsnCode.value, item.quantity.value, item.unit.value, item.unitPrice.value, item.lineTotal.value].every(
+      (v) => v === null,
+    );
+
+    const data = {
+      description: item.description.value,
+      hsnCode: item.hsnCode.value,
+      quantity: item.quantity.value,
+      unit: item.unit.value,
+      unitPrice: item.unitPrice.value,
+      lineTotal: item.lineTotal.value,
+      countryOfOrigin: item.countryOfOrigin.value,
+      sourceDocumentType,
+      confidenceAvg,
+      verificationStatus: allNull ? ("MISSING" as const) : ("UNVERIFIED" as const),
+    };
+
+    await prisma.lineItem.upsert({
+      where: { shipmentId_lineIndex: { shipmentId, lineIndex: index } },
+      create: { shipmentId, lineIndex: index, ...data },
+      update: data,
+    });
+  }
 }
 
 async function refreshValidationIssues(shipmentId: string, results: Partial<Record<DocumentType, DocumentExtractionResult>>) {

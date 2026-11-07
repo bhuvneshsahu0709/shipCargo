@@ -14,12 +14,13 @@ export async function recomputeShipmentReadiness(shipmentId: string) {
     return shipment.status;
   }
 
-  const [openCritical, unverifiedCount] = await Promise.all([
+  const [openCritical, unverifiedFields, unverifiedLineItems] = await Promise.all([
     prisma.validationIssue.count({ where: { shipmentId, status: "OPEN", severity: "CRITICAL" } }),
     prisma.extractedField.count({ where: { shipmentId, verificationStatus: "UNVERIFIED" } }),
+    prisma.lineItem.count({ where: { shipmentId, verificationStatus: "UNVERIFIED" } }),
   ]);
 
-  const isReady = openCritical === 0 && unverifiedCount === 0;
+  const isReady = openCritical === 0 && unverifiedFields === 0 && unverifiedLineItems === 0;
   const nextStatus = isReady ? "READY_FOR_APPROVAL" : "NEEDS_REVIEW";
 
   if (nextStatus !== shipment.status) {

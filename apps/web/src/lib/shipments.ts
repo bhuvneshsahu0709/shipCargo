@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ApprovalRequest,
   CorrectFieldRequest,
+  CorrectLineItemRequest,
   CreateShipmentRequest,
   ResolveValidationIssueRequest,
   ShipmentListQuery,
@@ -94,6 +95,24 @@ export function useVerifyField(shipmentId: string) {
   return useMutation({
     mutationFn: ({ fieldId, body }: { fieldId: string; body: VerifyFieldRequest }) =>
       apiPost(`/shipments/${shipmentId}/fields/${fieldId}/verify`, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments", shipmentId] }),
+  });
+}
+
+export function useCorrectLineItem(shipmentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ lineItemId, body }: { lineItemId: string; body: CorrectLineItemRequest }) =>
+      apiPatch(`/shipments/${shipmentId}/line-items/${lineItemId}`, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments", shipmentId] }),
+  });
+}
+
+export function useVerifyLineItem(shipmentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ lineItemId, body }: { lineItemId: string; body: VerifyFieldRequest }) =>
+      apiPost(`/shipments/${shipmentId}/line-items/${lineItemId}/verify`, body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments", shipmentId] }),
   });
 }

@@ -34,6 +34,18 @@ export const verifyFieldRequestSchema = z.object({
 });
 export type VerifyFieldRequest = z.infer<typeof verifyFieldRequestSchema>;
 
+export const correctLineItemRequestSchema = z.object({
+  description: z.string().max(500).nullable(),
+  hsnCode: z.string().max(32).nullable(),
+  quantity: z.number().nullable(),
+  unit: z.string().max(32).nullable(),
+  unitPrice: z.number().nullable(),
+  lineTotal: z.number().nullable(),
+  countryOfOrigin: z.string().max(100).nullable(),
+  note: z.string().max(1000).optional(),
+});
+export type CorrectLineItemRequest = z.infer<typeof correctLineItemRequestSchema>;
+
 export const approvalRequestSchema = z.object({
   decision: z.enum(["APPROVED", "REJECTED"]),
   comments: z.string().max(2000).optional(),

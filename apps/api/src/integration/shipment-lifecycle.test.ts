@@ -63,6 +63,21 @@ describe("auth", () => {
     const res = await request(app).get("/api/shipments");
     expect(res.status).toBe(401);
   });
+
+  it("returns 401 (not a 500) for a validly-signed session whose user no longer exists in the database", async () => {
+    const user = await prisma.user.create({
+      data: { name: "Ephemeral User", email: `ephemeral-${Date.now()}@test.local`, passwordHash: await hashPassword("Ephemeral123!"), role: "EXECUTIVE" },
+    });
+    const cookie = await login(user.email, "Ephemeral123!");
+
+    await prisma.user.delete({ where: { id: user.id } });
+
+    const res = await request(app)
+      .post("/api/shipments")
+      .set("Cookie", cookie)
+      .send({ shipmentNumber: `SHP-STALE-${Date.now()}`, supplier: "S", importer: "I" });
+    expect(res.status).toBe(401);
+  });
 });
 
 describe("role authorization", () => {
@@ -183,6 +198,43 @@ describe("full happy path via the API", () => {
         expect(verifyRes.status).toBe(200);
       }
     }
+
+    const lineItems = detailRes.body.lineItems;
+    expect(lineItems.length).toBeGreaterThan(0);
+    const correctRes = await request(app)
+      .patch(`/api/shipments/${shipmentId}/line-items/${lineItems[0].id}`)
+      .set("Cookie", executiveCookie)
+      .send({
+        description: "Corrected description",
+        hsnCode: lineItems[0].hsnCode,
+        quantity: lineItems[0].quantity,
+        unit: lineItems[0].unit,
+        unitPrice: lineItems[0].unitPrice,
+        lineTotal: lineItems[0].lineTotal,
+        countryOfOrigin: lineItems[0].countryOfOrigin,
+        note: "Fixed via integration test",
+      });
+    expect(correctRes.status).toBe(200);
+    expect(correctRes.body.lineItem.verificationStatus).toBe("CORRECTED");
+    expect(correctRes.body.lineItem.description).toBe("Corrected description");
+
+    for (const li of lineItems.slice(1)) {
+      if (li.verificationStatus === "UNVERIFIED") {
+        const verifyLineRes = await request(app)
+          .post(`/api/shipments/${shipmentId}/line-items/${li.id}/verify`)
+          .set("Cookie", executiveCookie)
+          .send({ verified: true });
+        expect(verifyLineRes.status).toBe(200);
+      }
+    }
+
+    // A re-run of extraction must not clobber the correction just made.
+    const reprocessRes = await request(app).post(`/api/shipments/${shipmentId}/process`).set("Cookie", executiveCookie);
+    expect(reprocessRes.status).toBe(200);
+    const afterReprocess = await request(app).get(`/api/shipments/${shipmentId}`).set("Cookie", executiveCookie);
+    const correctedLine = afterReprocess.body.lineItems.find((li: { id: string }) => li.id === lineItems[0].id);
+    expect(correctedLine.description).toBe("Corrected description");
+    expect(correctedLine.verificationStatus).toBe("CORRECTED");
 
     const validationRes = await request(app).get(`/api/shipments/${shipmentId}/validation`).set("Cookie", executiveCookie);
     for (const issue of validationRes.body.issues) {

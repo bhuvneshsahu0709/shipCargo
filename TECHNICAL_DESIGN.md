@@ -1,6 +1,6 @@
 # CargoLens AI — Technical Design Document
 
-**GitHub repository:** not yet pushed to a remote — this is a local-only submission (see commit history for authorship).
+**GitHub repository:** https://github.com/bhuvneshsahu0709/shipCargo
 **Live application URL:** none; run locally per [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 ## 1. Architecture and rationale
@@ -21,7 +21,7 @@ PostgreSQL via Prisma (`apps/api/prisma/schema.prisma`). Key design decision: **
 
 - **`User`** (`EXECUTIVE` | `MANAGER`), **`Shipment`**, **`Document`** (one row per required document type, unique per `(shipmentId, documentType)`, carries a `contentHash` for duplicate detection), **`Extraction`** (the raw + schema-validated AI response per document, with its own `processingStatus` so a failed document doesn't block the other two).
 - **`ExtractedField`**: one row per shipment-level or packaging field (`fieldName` e.g. `supplierName`, `packaging.grossWeight`). Carries `originalValue` (what the AI said, preserved for audit) separately from `value` (what's currently approved for export — initially the same, overwritten only by a human correction), plus `confidence`, `sourceDocumentId`, `evidence`, `pageNumber` and a `verificationStatus` (`UNVERIFIED` / `VERIFIED` / `CORRECTED` / `MISSING`). Re-running extraction updates `originalValue` and confidence but **never overwrites a field a human has already corrected or verified** — see `mergeExtractedFields` in `extractionService.ts`.
-- **`LineItem`**: one row per invoice/packing-list line (see §6 for why these are read-only in this submission).
+- **`LineItem`**: one row per invoice/packing-list line, with its own `verificationStatus`/`correctionNote` mirroring `ExtractedField`. Re-extraction upserts by `(shipmentId, lineIndex)` and, like fields, never overwrites a line a human has already corrected or verified — even if a later re-extraction returns fewer or different rows (see `mergeLineItems` in `extractionService.ts`).
 - **`ValidationIssue`**: one row per failed deterministic check, with `ruleId`, `severity`, the documents compared, the raw compared values, and a `status` (`OPEN` / `RESOLVED` / `ACCEPTED_EXCEPTION`) plus who resolved it and why. Re-running validation deletes and replaces only `OPEN` issues — a manager-accepted exception's history is never silently erased by a re-extraction.
 - **`Approval`** and **`AuditLog`**: append-only. Every correction, verification, extraction run, document upload/replace/delete, validation resolution and approval decision is recorded with who/when/before/after.
 
@@ -58,7 +58,7 @@ A `CRITICAL` open issue blocks both "ready for approval" and export; a `WARNING`
 ## 5. Key UI decisions
 
 - **Visual identity**: white/slate surfaces, a deep-navy sidebar and header accents, teal for verified/approved states, amber for warnings, red for blocking criticals — implemented as a handful of CSS custom properties in `globals.css`, not a sprawling design-token file, since the palette is small and stable.
-- **The review workspace (`/shipments/[id]`) got the most engineering effort**, per the brief's explicit priority: a real `pdfjs-dist`-rendered split view (page navigation, zoom) on the left, editable field sections grouped by Parties/Invoice/Packaging/Containers on the right, each row showing confidence, source document + page, evidence text, and a verify checkbox. Clicking a field with evidence jumps the viewer to that document and page (`onNavigate`) — this only works because the viewer's `page` is a *controlled* prop owned by the parent, not local state, which was a deliberate refactor during development once the navigate-on-click requirement made local state the wrong owner.
+- **The review workspace (`/shipments/[id]`) got the most engineering effort**, per the brief's explicit priority: a real `pdfjs-dist`-rendered split view (page navigation, zoom) on the left, editable field sections grouped by Parties/Invoice/Packaging/Containers on the right, each row showing confidence, source document + page, evidence text, and a verify checkbox. The line items table is editable the same way (row-level edit toggle, verify checkbox), not just the header/packaging fields. Clicking a field with evidence jumps the viewer to that document and page (`onNavigate`) — this only works because the viewer's `page` is a *controlled* prop owned by the parent, not local state, which was a deliberate refactor during development once the navigate-on-click requirement made local state the wrong owner.
 - **Tabs, not five separate screens**, for Review / Validation / Approval on one shipment — the brief's screens 5–7 are really three views of the same shipment and switching between them shouldn't lose your place in the document viewer.
 - All interactive primitives (dialog, tabs, select, checkbox, progress) are small Radix-based wrappers in `components/ui/`, not a vendored component library, to keep the bundle and the design surface exactly as large as this product needs.
 
@@ -75,12 +75,12 @@ A `CRITICAL` open issue blocks both "ready for approval" and export; a `WARNING`
 
 - A documentation executive creates and owns a shipment; a documentation manager is a distinct person who did not do the data entry for the shipment they're approving.
 - One invoice, one packing list and one bill of lading per shipment (the brief's model); multi-invoice shipments are out of scope.
-- "Approved" is a terminal, locking state in this submission — an approved shipment's fields are read-only and it cannot be re-processed. Reverting an approval isn't modeled (only "Request Changes" before approval).
+- "Approved" is a terminal, locking state in this submission — an approved shipment's fields, line items, documents and validation issues are all read-only (enforced server-side, not just hidden in the UI) and it cannot be re-processed. Reverting an approval isn't modeled (only "Request Changes" before approval).
 - Demo/synthetic data is always clearly labeled as such in the UI and never presented as a real accuracy claim.
 
 ## 8. Limitations
 
-- **Line items are read-only** in the review workspace (see §9 for why) — cross-document line-item quantity validation still works correctly because it reads from the immutable `Extraction.structuredResponse`, not from the mutable `LineItem` table.
+- Cross-document line-item quantity validation reads from the immutable `Extraction.structuredResponse`, not from the mutable `LineItem` table — so correcting a line item in the review workspace fixes the record but doesn't retroactively change a validation issue already raised against the original extracted quantity (re-run "Process documents" to revalidate against corrected source documents instead).
 - No dedicated OCR fallback library (e.g. Tesseract) was integrated; Gemini's multimodal model handles scanned PDFs/images directly when configured, and the demo adapter doesn't attempt OCR at all (by design — it never claims to read the document).
 - Confidence scores from the AI provider are estimates reported by the model, not statistically calibrated against a labeled ground-truth set — the brief asks explicitly not to overclaim here, and the analytics screen labels every number as "computed live from stored records," not validated accuracy.
 - Local filesystem storage only; the `StorageAdapter` interface supports an S3 implementation but one wasn't written (see roadmap).
@@ -89,14 +89,14 @@ A `CRITICAL` open issue blocks both "ready for approval" and export; a `WARNING`
 
 ## 9. What was deliberately cut
 
-- **Line-item field-level correction UI.** Adding per-field confidence/evidence/correction tracking to line items (mirroring `ExtractedField`) was scoped out to keep the review workspace's engineering effort concentrated on the header/packaging fields the brief's example (the 45kg mismatch) actually exercises, rather than spreading it thin. The line items table is still fully populated, shows confidence, and is read-only with a visible note explaining the limitation — it does not silently pretend to be editable.
+- **Per-field (as opposed to per-line) correction tracking on line items.** Each `LineItem` row has one `verificationStatus`/`correctionNote`, not one per column the way `ExtractedField` tracks one row per field — correcting a line item's description doesn't individually flag just that column as human-owned, the whole row is marked `CORRECTED` and preserved as a unit on re-extraction. A fully granular per-cell model (mirroring `ExtractedField` exactly) was scoped out as lower value than shipping the row-level version end-to-end.
 - **A separate OCR pipeline** (see Limitations).
 - **An S3 storage adapter implementation** — the interface exists; only the local adapter was written, since local dev and this submission don't need object storage.
 - **Multi-tenancy, org switching, SSO** — out of scope for a two-role brokerage desk brief.
 
 ## 10. Future roadmap
 
-1. Per-field line-item correction, mirroring the shipment-level `ExtractedField` model.
+1. Per-cell line-item correction tracking, fully mirroring the shipment-level `ExtractedField` model.
 2. An S3-compatible `StorageAdapter` implementation for multi-instance deployment.
 3. A real OCR fallback (Tesseract) for environments without a Gemini key but with scanned-only documents.
 4. Confidence calibration against a labeled sample set, with the measured calibration curve surfaced in analytics instead of raw model-reported confidence.

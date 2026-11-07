@@ -51,7 +51,7 @@ cp apps/web/.env.example apps/web/.env.local
 | `WEB_ORIGIN` | Frontend origin, for CORS |
 | `AI_PROVIDER` | `demo` (deterministic, no API key needed) or `gemini` (real multimodal extraction) |
 | `GEMINI_API_KEY` | Required only when `AI_PROVIDER=gemini` |
-| `GEMINI_MODEL` | e.g. `gemini-2.0-flash` |
+| `GEMINI_MODEL` | e.g. `gemini-3.5-flash-lite` |
 | `STORAGE_DRIVER` | `local` (filesystem adapter under `STORAGE_LOCAL_DIR`) |
 | `STORAGE_LOCAL_DIR` | Directory for uploaded documents |
 

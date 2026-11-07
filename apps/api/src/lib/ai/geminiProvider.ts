@@ -5,8 +5,8 @@ import { buildExtractionPrompt, EXTRACTION_PROMPT_VERSION } from "./prompt.js";
 import { ExtractionProviderError, type DocumentExtractionProvider, type ExtractionInput } from "./types.js";
 
 const MAX_ATTEMPTS = 3;
-const TIMEOUT_MS = 45_000;
-const BASE_BACKOFF_MS = 1_500;
+const TIMEOUT_MS = 75_000;
+const BASE_BACKOFF_MS = 2_000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
